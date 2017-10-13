@@ -15,6 +15,6 @@ func main() {
 			TokenURL: "https://bitbucket.org/site/oauth2/access_token",
 		},
 	}
-	/*client := ...*/ _ = oauth2ns.Authorize(conf)
-	// use client.Get / client.Post for further requests, the token will automatically be there
+	/*r := ...*/ _ = oauth2ns.Authorize(conf)
+	// use r.client.Get / r.client.Post for further requests, the token will automatically be there
 }

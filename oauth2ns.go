@@ -23,7 +23,12 @@ var (
 	ctx context.Context
 )
 
-func Authorize(conf *oauth2.Config) *http.Client {
+type Result struct {
+	Client *http.Client
+	Token  *oauth2.Token
+}
+
+func Authorize(conf *oauth2.Config) *Result {
 	// add transport for self-signed certificate to context
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
@@ -36,7 +41,7 @@ func Authorize(conf *oauth2.Config) *http.Client {
 	conf.RedirectURL = fmt.Sprintf("http://127.0.0.1:%s/oauth/callback", strconv.Itoa(PORT))
 	url := conf.AuthCodeURL("state", oauth2.AccessTypeOffline)
 
-	quitSignal := make(chan *http.Client)
+	quitSignal := make(chan *Result)
 	srv := startHttpServer(conf, quitSignal)
 	log.Println(color.CyanString("You will now be taken to your browser for authentication"))
 	time.Sleep(600 * time.Millisecond)
@@ -49,28 +54,30 @@ func Authorize(conf *oauth2.Config) *http.Client {
 
 	// now close the server gracefully ("shutdown")
 	// timeout could be given instead of nil as a https://golang.org/pkg/context/
-	client := <-quitSignal
-	if err := srv.Shutdown(nil); err != nil {
+	r := <-quitSignal
+	ctx, _ := context.WithTimeout(context.Background(), 1*time.Second)
+	if err := srv.Shutdown(ctx); err != nil {
 		panic(err) // failure/timeout shutting down the server gracefully
 	}
-	return client
+	return r
 }
 
-func startHttpServer(conf *oauth2.Config, quitSignal chan *http.Client) *http.Server {
+func startHttpServer(conf *oauth2.Config, quitSignal chan *Result) *http.Server {
 	http.HandleFunc("/oauth/callback", callbackHandler(conf, quitSignal))
 	srv := &http.Server{Addr: ":" + strconv.Itoa(PORT)}
 
 	go func() {
 		if err := srv.ListenAndServe(); err != nil {
-			// cannot panic, because this probably is an intentional close
-			log.Printf("Httpserver error: %s", err)
+			if err.Error() != "http: Server closed" {
+				log.Printf("Httpserver error: %s", err)
+			}
 		}
 	}()
 
 	return srv
 }
 
-func callbackHandler(conf *oauth2.Config, quitSignal chan *http.Client) func(w http.ResponseWriter, r *http.Request) {
+func callbackHandler(conf *oauth2.Config, quitSignal chan *Result) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		queryParts, err := url.ParseQuery(r.URL.RawQuery)
 		if err != nil {
@@ -93,6 +100,6 @@ func callbackHandler(conf *oauth2.Config, quitSignal chan *http.Client) func(w h
 		<script>window.onload=function(){setTimeout(this.close, 2000)}</script>
 		`
 		fmt.Fprintf(w, successPage)
-		quitSignal <- client
+		quitSignal <- &Result{client, tok}
 	}
 }
