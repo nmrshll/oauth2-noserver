@@ -25,7 +25,7 @@ And then, from your Go program, authenticate your user like this :
 package main
 
 import (
-	"github.com/n-marshall/oauth2ns"
+	oauth2ns "github.com/n-marshall/oauth2-noserver"
 	"golang.org/x/oauth2"
 )
 
