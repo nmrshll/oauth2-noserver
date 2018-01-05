@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/n-marshall/oauth2ns"
+	"github.com/nmrshll/oauth2-noserver"
 	"golang.org/x/oauth2"
 )
 

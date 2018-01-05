@@ -1,8 +1,14 @@
-# oauth2ns: easy oauth2 for purely client side apps (desktop GUI, cli, mobile)
+# oauth2-noserver
+## Simplifying the oauth2 auth flow for desktop / cli apps that have no server side.
 While oauth works fine for apps the have a server side, I personally find it a pain to use when developing simple desktop or cli applications.  
 That's why needed something to turn a complete oauth flow into a one-liner (well, that's clearly exaggerated, but it's barely more).  
 
-So here's how it works !  
+So here's how it works !
+
+
+# Installation
+
+Run `go get github.com/nmrshll/oauth2-noserver`
 
 # Usage
 
@@ -25,7 +31,7 @@ And then, from your Go program, authenticate your user like this :
 package main
 
 import (
-	"github.com/n-marshall/oauth2ns"
+	"github.com/nmrshll/oauth2-noserver"
 	"golang.org/x/oauth2"
 )
 
