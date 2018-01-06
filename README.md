@@ -12,7 +12,7 @@ Run `go get github.com/nmrshll/oauth2-noserver`
 
 # Usage
 
-On the web service that you want your app to authenticate into, register you app (aka client) to get a `client id` and a `client secret`. 
+On the web service that you want your app to authenticate into, register your app (aka client) to get a `client id` and a `client secret`. 
 
 **IMPORTANT**: you must set the redirection URL to `http://127.0.0.1:14565/oauth/callback` for this lib to function properly.  
 

@@ -6,58 +6,63 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"net/url"
 	"strconv"
 	"time"
 
 	"github.com/fatih/color"
+	rndm "github.com/nmrshll/rndm-go"
 	"github.com/skratchdot/open-golang/open"
 	"golang.org/x/oauth2"
 )
 
+type contextKey int
+
 const (
-	PORT = 14565
+	// PORT is the port that the temporary oauth server will listen on
+	PORT                                  = 14565
+	oauthStateStringContextKey contextKey = iota
 )
 
-var (
-	ctx context.Context
-)
-
+// Authorize starts the login process
 func Authorize(conf *oauth2.Config) *http.Client {
 	// add transport for self-signed certificate to context
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
 	sslcli := &http.Client{Transport: tr}
-	ctx = context.WithValue(context.Background(), oauth2.HTTPClient, sslcli)
+	ctx := context.WithValue(context.Background(), oauth2.HTTPClient, sslcli)
 
 	// Redirect user to consent page to ask for permission
 	// for the scopes specified above.
 	conf.RedirectURL = fmt.Sprintf("http://127.0.0.1:%s/oauth/callback", strconv.Itoa(PORT))
-	url := conf.AuthCodeURL("state", oauth2.AccessTypeOffline)
+
+	// Some random string, random for each request
+	oauthStateString := rndm.String(8)
+	ctx = context.WithValue(ctx, oauthStateStringContextKey, oauthStateString)
+	url := conf.AuthCodeURL(oauthStateString, oauth2.AccessTypeOffline)
 
 	quitSignal := make(chan *http.Client)
-	srv := startHttpServer(conf, quitSignal)
+	srv := startHTTPServer(ctx, conf, quitSignal)
 	log.Println(color.CyanString("You will now be taken to your browser for authentication"))
 	time.Sleep(600 * time.Millisecond)
 	open.Run(url)
 	time.Sleep(600 * time.Millisecond)
-	log.Printf("Authentication URL: %s\n", url)
+	// log.Printf("Authentication URL: %s\n", url)
 
-	log.Printf("main: serving for 10 seconds")
-	log.Printf("main: stopping HTTP server")
-
-	// now close the server gracefully ("shutdown")
+	// When the callbackHandler returns a client, it's time to shutdown the server gracefully
 	// timeout could be given instead of nil as a https://golang.org/pkg/context/
 	client := <-quitSignal
-	if err := srv.Shutdown(nil); err != nil {
-		panic(err) // failure/timeout shutting down the server gracefully
+	log.Printf("stopping HTTP server")
+	shutdownContext, _ := context.WithTimeout(context.Background(), 5*time.Second)
+	if err := srv.Shutdown(shutdownContext); err != nil {
+		log.Fatal(err) // failure/timeout shutting down the server gracefully
 	}
+	fmt.Println("Server gracefully stopped")
 	return client
 }
 
-func startHttpServer(conf *oauth2.Config, quitSignal chan *http.Client) *http.Server {
-	http.HandleFunc("/oauth/callback", callbackHandler(conf, quitSignal))
+func startHTTPServer(ctx context.Context, conf *oauth2.Config, quitSignal chan *http.Client) *http.Server {
+	http.HandleFunc("/oauth/callback", callbackHandler(ctx, conf, quitSignal))
 	srv := &http.Server{Addr: ":" + strconv.Itoa(PORT)}
 
 	go func() {
@@ -70,27 +75,31 @@ func startHttpServer(conf *oauth2.Config, quitSignal chan *http.Client) *http.Se
 	return srv
 }
 
-func callbackHandler(conf *oauth2.Config, quitSignal chan *http.Client) func(w http.ResponseWriter, r *http.Request) {
+func callbackHandler(ctx context.Context, conf *oauth2.Config, quitSignal chan *http.Client) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		queryParts, err := url.ParseQuery(r.URL.RawQuery)
-		if err != nil {
-			fmt.Fprintf(w, fmt.Sprintf("<p>%s</p>"), err.Error())
+		requestStateString := ctx.Value(oauthStateStringContextKey).(string)
+		responseStateString := r.FormValue("state")
+		if responseStateString != requestStateString {
+			fmt.Printf("invalid oauth state, expected '%s', got '%s'\n", requestStateString, responseStateString)
+			http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
+			return
 		}
-		code := queryParts["code"][0]
 
-		// Exchange will do the handshake to retrieve the initial access token.
-		tok, err := conf.Exchange(ctx, code)
+		code := r.FormValue("code")
+		token, err := conf.Exchange(ctx, code)
 		if err != nil {
-			log.Fatal(err)
+			fmt.Printf("oauthConf.Exchange() failed with '%s'\n", err)
+			http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
+			return
 		}
-		// The HTTP Client returned by conf.Client will refresh the token as necessary.
-		client := conf.Client(ctx, tok)
+		// The HTTP Client returned by conf.Client will refresh the token as necessary
+		client := conf.Client(ctx, token)
 
 		// show success page
 		successPage := `
-		<p style="height:100px; width:100%; display:flex; flex-direction: column; justify-content: center; text-align:center; background-color:#2ecc71; color:white; font-size:22">Success!</p>
-		<p style="margin-top:20px; font-size:16">You are authenticated, you can now return to the CLI. This will auto-close</p>
-		<script>window.onload=function(){setTimeout(this.close, 2000)}</script>
+		<div style="height:100px; width:100%!; display:flex; flex-direction: column; justify-content: center; align-items:center; background-color:#2ecc71; color:white; font-size:22"><div>Success!</div></div>
+		<p style="margin-top:20px; font-size:18; text-align:center">You are authenticated, you can now return to the program. This will auto-close</p>
+		<script>window.onload=function(){setTimeout(this.close, 4000)}</script>
 		`
 		fmt.Fprintf(w, successPage)
 		quitSignal <- client
