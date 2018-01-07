@@ -17,6 +17,11 @@ import (
 
 type contextKey int
 
+type AuthorizedClient struct {
+	*http.Client
+	Token *oauth2.Token
+}
+
 const (
 	// PORT is the port that the temporary oauth server will listen on
 	PORT                                  = 14565
@@ -24,7 +29,7 @@ const (
 )
 
 // Authorize starts the login process
-func Authorize(conf *oauth2.Config) *http.Client {
+func Authorize(conf *oauth2.Config) *AuthorizedClient {
 	// add transport for self-signed certificate to context
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
@@ -41,41 +46,49 @@ func Authorize(conf *oauth2.Config) *http.Client {
 	ctx = context.WithValue(ctx, oauthStateStringContextKey, oauthStateString)
 	url := conf.AuthCodeURL(oauthStateString, oauth2.AccessTypeOffline)
 
-	quitSignal := make(chan *http.Client)
-	srv := startHTTPServer(ctx, conf, quitSignal)
+	quitSignalChan := make(chan struct{})
+	clientChan := make(chan *AuthorizedClient)
+	startHTTPServer(ctx, conf, clientChan, quitSignalChan)
 	log.Println(color.CyanString("You will now be taken to your browser for authentication"))
 	time.Sleep(600 * time.Millisecond)
 	open.Run(url)
 	time.Sleep(600 * time.Millisecond)
-	// log.Printf("Authentication URL: %s\n", url)
 
+	// wait for client on clientChan
+	client := <-clientChan
 	// When the callbackHandler returns a client, it's time to shutdown the server gracefully
-	// timeout could be given instead of nil as a https://golang.org/pkg/context/
-	client := <-quitSignal
-	log.Printf("stopping HTTP server")
-	shutdownContext, _ := context.WithTimeout(context.Background(), 5*time.Second)
-	if err := srv.Shutdown(shutdownContext); err != nil {
-		log.Fatal(err) // failure/timeout shutting down the server gracefully
-	}
-	fmt.Println("Server gracefully stopped")
+	quitSignalChan <- struct{}{}
+
 	return client
 }
 
-func startHTTPServer(ctx context.Context, conf *oauth2.Config, quitSignal chan *http.Client) *http.Server {
-	http.HandleFunc("/oauth/callback", callbackHandler(ctx, conf, quitSignal))
+func startHTTPServer(ctx context.Context, conf *oauth2.Config, clientChan chan *AuthorizedClient, quitSignalChan chan struct{}) {
+	http.HandleFunc("/oauth/callback", callbackHandler(ctx, conf, clientChan))
 	srv := &http.Server{Addr: ":" + strconv.Itoa(PORT)}
 
 	go func() {
-		if err := srv.ListenAndServe(); err != nil {
-			// cannot panic, because this probably is an intentional close
-			log.Printf("Httpserver error: %s", err)
+		// wait for quitSignal on quitSignalChan
+		<-quitSignalChan
+		log.Println("Shutting down server...")
+
+		d := time.Now().Add(5 * time.Second) // deadline 5s max
+		ctx, cancel := context.WithDeadline(context.Background(), d)
+		defer cancel()
+
+		if err := srv.Shutdown(ctx); err != nil {
+			log.Fatalf("could not shutdown: %v", err)
 		}
 	}()
 
-	return srv
+	go func() {
+		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
+			log.Fatalf("listen: %s\n", err)
+		}
+		fmt.Println("Server gracefully stopped")
+	}()
 }
 
-func callbackHandler(ctx context.Context, conf *oauth2.Config, quitSignal chan *http.Client) func(w http.ResponseWriter, r *http.Request) {
+func callbackHandler(ctx context.Context, conf *oauth2.Config, clientChan chan *AuthorizedClient) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		requestStateString := ctx.Value(oauthStateStringContextKey).(string)
 		responseStateString := r.FormValue("state")
@@ -93,8 +106,10 @@ func callbackHandler(ctx context.Context, conf *oauth2.Config, quitSignal chan *
 			return
 		}
 		// The HTTP Client returned by conf.Client will refresh the token as necessary
-		client := conf.Client(ctx, token)
-
+		client := &AuthorizedClient{
+			conf.Client(ctx, token),
+			token,
+		}
 		// show success page
 		successPage := `
 		<div style="height:100px; width:100%!; display:flex; flex-direction: column; justify-content: center; align-items:center; background-color:#2ecc71; color:white; font-size:22"><div>Success!</div></div>
@@ -102,6 +117,7 @@ func callbackHandler(ctx context.Context, conf *oauth2.Config, quitSignal chan *
 		<script>window.onload=function(){setTimeout(this.close, 4000)}</script>
 		`
 		fmt.Fprintf(w, successPage)
-		quitSignal <- client
+		// quitSignalChan <- quitSignal
+		clientChan <- client
 	}
 }
