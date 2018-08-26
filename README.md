@@ -26,7 +26,7 @@ This will give you the `client id` and `client secret` you need to authenticate 
 
 And then, from your Go program, authenticate your user like this :  
 
-[embedmd]:# (./example/example.go)
+[embedmd]:# (./.docs/examples/quickstart/quickstart.go)
 ```go
 package main
 
@@ -37,8 +37,8 @@ import (
 
 func main() {
 	conf := &oauth2.Config{
-		ClientID:     "tRQ9V3cyLxHu3xXFWM",               // also known as slient key sometimes
-		ClientSecret: "PZEU9ruk3eZxYvAeCRgS9YyYpAybLG4P", // also known as secret key
+		ClientID:     "________________",            // also called client key sometimes
+		ClientSecret: "___________________________", // also called secret key
 		Scopes:       []string{"account"},
 		Endpoint: oauth2.Endpoint{
 			AuthURL:  "https://bitbucket.org/site/oauth2/authorize",
