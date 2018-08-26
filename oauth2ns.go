@@ -6,16 +6,17 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/fatih/color"
 	rndm "github.com/nmrshll/rndm-go"
+	"github.com/palantir/stacktrace"
 	"github.com/skratchdot/open-golang/open"
 	"golang.org/x/oauth2"
 )
-
-type contextKey int
 
 type AuthorizedClient struct {
 	*http.Client
@@ -24,12 +25,33 @@ type AuthorizedClient struct {
 
 const (
 	// PORT is the port that the temporary oauth server will listen on
-	PORT                                  = 14565
-	oauthStateStringContextKey contextKey = iota
+	PORT                       = 14565
+	oauthStateStringContextKey = 987
 )
 
+type AuthorizeFuncConfig struct {
+	AuthCallHTTPParams url.Values
+}
+
+func WithAuthCallHTTPParams(values url.Values) func(*AuthorizeFuncConfig) {
+	return func(conf *AuthorizeFuncConfig) {
+		conf.AuthCallHTTPParams = values
+	}
+}
+
 // Authorize starts the login process
-func Authorize(conf *oauth2.Config) *AuthorizedClient {
+func Authorize(oauthConfig *oauth2.Config, options ...func(*AuthorizeFuncConfig)) (*AuthorizedClient, error) {
+	// validate params
+	if oauthConfig == nil {
+		return nil, stacktrace.NewError("oauthConfig can't be nil")
+	}
+	// read options
+	var funcConfig AuthorizeFuncConfig
+	for _, processConfigFunc := range options {
+		processConfigFunc(&funcConfig)
+	}
+	spew.Dump(funcConfig)
+
 	// add transport for self-signed certificate to context
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
@@ -39,19 +61,33 @@ func Authorize(conf *oauth2.Config) *AuthorizedClient {
 
 	// Redirect user to consent page to ask for permission
 	// for the scopes specified above.
-	conf.RedirectURL = fmt.Sprintf("http://127.0.0.1:%s/oauth/callback", strconv.Itoa(PORT))
+	oauthConfig.RedirectURL = fmt.Sprintf("http://127.0.0.1:%s/oauth/callback", strconv.Itoa(PORT))
 
 	// Some random string, random for each request
 	oauthStateString := rndm.String(8)
 	ctx = context.WithValue(ctx, oauthStateStringContextKey, oauthStateString)
-	url := conf.AuthCodeURL(oauthStateString, oauth2.AccessTypeOffline)
+	urlString := oauthConfig.AuthCodeURL(oauthStateString, oauth2.AccessTypeOffline)
+
+	if funcConfig.AuthCallHTTPParams != nil {
+		parsedURL, err := url.Parse(urlString)
+		if err != nil {
+			return nil, stacktrace.Propagate(err, "failed parsing url string")
+		}
+		params := parsedURL.Query()
+		for key, value := range funcConfig.AuthCallHTTPParams {
+			params[key] = value
+		}
+		parsedURL.RawQuery = params.Encode()
+		urlString = parsedURL.String()
+	}
 
 	quitSignalChan := make(chan struct{})
 	clientChan := make(chan *AuthorizedClient)
-	startHTTPServer(ctx, conf, clientChan, quitSignalChan)
+	startHTTPServer(ctx, oauthConfig, clientChan, quitSignalChan)
 	log.Println(color.CyanString("You will now be taken to your browser for authentication"))
 	time.Sleep(600 * time.Millisecond)
-	open.Run(url)
+	spew.Dump(urlString)
+	open.Run(urlString)
 	time.Sleep(600 * time.Millisecond)
 
 	// wait for client on clientChan
@@ -59,7 +95,7 @@ func Authorize(conf *oauth2.Config) *AuthorizedClient {
 	// When the callbackHandler returns a client, it's time to shutdown the server gracefully
 	quitSignalChan <- struct{}{}
 
-	return client
+	return client, nil
 }
 
 func startHTTPServer(ctx context.Context, conf *oauth2.Config, clientChan chan *AuthorizedClient, quitSignalChan chan struct{}) {
@@ -88,7 +124,7 @@ func startHTTPServer(ctx context.Context, conf *oauth2.Config, clientChan chan *
 	}()
 }
 
-func callbackHandler(ctx context.Context, conf *oauth2.Config, clientChan chan *AuthorizedClient) func(w http.ResponseWriter, r *http.Request) {
+func callbackHandler(ctx context.Context, oauthConfig *oauth2.Config, clientChan chan *AuthorizedClient) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		requestStateString := ctx.Value(oauthStateStringContextKey).(string)
 		responseStateString := r.FormValue("state")
@@ -99,15 +135,15 @@ func callbackHandler(ctx context.Context, conf *oauth2.Config, clientChan chan *
 		}
 
 		code := r.FormValue("code")
-		token, err := conf.Exchange(ctx, code)
+		token, err := oauthConfig.Exchange(ctx, code)
 		if err != nil {
-			fmt.Printf("oauthConf.Exchange() failed with '%s'\n", err)
+			fmt.Printf("oauthoauthConfig.Exchange() failed with '%s'\n", err)
 			http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
 			return
 		}
-		// The HTTP Client returned by conf.Client will refresh the token as necessary
+		// The HTTP Client returned by oauthConfig.Client will refresh the token as necessary
 		client := &AuthorizedClient{
-			conf.Client(ctx, token),
+			oauthConfig.Client(ctx, token),
 			token,
 		}
 		// show success page
