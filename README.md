@@ -1,3 +1,5 @@
+[![Go Report Card](https://goreportcard.com/badge/github.com/nmrshll/oauth2-noserver)](https://goreportcard.com/report/github.com/nmrshll/oauth2-noserver)
+
 # oauth2-noserver
 Simplifying the oauth2 auth flow for desktop / cli apps that have no server side.
 
