@@ -1,6 +1,8 @@
 package main
 
 import (
+	"log"
+
 	"github.com/nmrshll/oauth2-noserver"
 	"golang.org/x/oauth2"
 )
@@ -15,6 +17,12 @@ func main() {
 			TokenURL: "https://bitbucket.org/site/oauth2/access_token",
 		},
 	}
-	/*client := ...*/ _ = oauth2ns.Authorize(conf)
+
+	client, err := oauth2ns.AuthenticateUser(conf)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	// use client.Get / client.Post for further requests, the token will automatically be there
+	_, _ = client.Get("/auth-protected-path")
 }
