@@ -29,28 +29,29 @@ const (
 	oauthStateStringContextKey = 987
 )
 
-type AuthorizeFuncConfig struct {
+type AuthenticateUserOption func(*AuthenticateUserFuncConfig) error
+type AuthenticateUserFuncConfig struct {
 	AuthCallHTTPParams url.Values
 }
 
-func WithAuthCallHTTPParams(values url.Values) func(*AuthorizeFuncConfig) {
-	return func(conf *AuthorizeFuncConfig) {
+func WithAuthCallHTTPParams(values url.Values) AuthenticateUserOption {
+	return func(conf *AuthenticateUserFuncConfig) error {
 		conf.AuthCallHTTPParams = values
+		return nil
 	}
 }
 
-// Authorize starts the login process
-func Authorize(oauthConfig *oauth2.Config, options ...func(*AuthorizeFuncConfig)) (*AuthorizedClient, error) {
+// AuthenticateUser starts the login process
+func AuthenticateUser(oauthConfig *oauth2.Config, options ...AuthenticateUserOption) (*AuthorizedClient, error) {
 	// validate params
 	if oauthConfig == nil {
 		return nil, stacktrace.NewError("oauthConfig can't be nil")
 	}
 	// read options
-	var funcConfig AuthorizeFuncConfig
+	var optionsConfig AuthenticateUserFuncConfig
 	for _, processConfigFunc := range options {
-		processConfigFunc(&funcConfig)
+		processConfigFunc(&optionsConfig)
 	}
-	spew.Dump(funcConfig)
 
 	// add transport for self-signed certificate to context
 	tr := &http.Transport{
@@ -68,60 +69,85 @@ func Authorize(oauthConfig *oauth2.Config, options ...func(*AuthorizeFuncConfig)
 	ctx = context.WithValue(ctx, oauthStateStringContextKey, oauthStateString)
 	urlString := oauthConfig.AuthCodeURL(oauthStateString, oauth2.AccessTypeOffline)
 
-	if funcConfig.AuthCallHTTPParams != nil {
+	if optionsConfig.AuthCallHTTPParams != nil {
 		parsedURL, err := url.Parse(urlString)
 		if err != nil {
-			return nil, stacktrace.Propagate(err, "failed parsing url string")
+			return nil, stacktrace.Propagate(err, "fa`iled parsing url string")
 		}
 		params := parsedURL.Query()
-		for key, value := range funcConfig.AuthCallHTTPParams {
+		for key, value := range optionsConfig.AuthCallHTTPParams {
 			params[key] = value
 		}
 		parsedURL.RawQuery = params.Encode()
 		urlString = parsedURL.String()
 	}
 
-	quitSignalChan := make(chan struct{})
-	clientChan := make(chan *AuthorizedClient)
-	startHTTPServer(ctx, oauthConfig, clientChan, quitSignalChan)
+	clientChan, stopHTTPServerChan, cancelAuthentication := startHTTPServer(ctx, oauthConfig)
 	log.Println(color.CyanString("You will now be taken to your browser for authentication"))
-	time.Sleep(600 * time.Millisecond)
-	spew.Dump(urlString)
-	open.Run(urlString)
+	time.Sleep(1000 * time.Millisecond)
+	err := open.Run(urlString)
+	if err != nil {
+		return nil, stacktrace.Propagate(err, "failed opening browser window")
+	}
 	time.Sleep(600 * time.Millisecond)
 
+	// shutdown the server after 10 seconds
+	go func() {
+		spew.Dump("authentication will be cancelled in 40 seconds")
+		time.Sleep(40 * time.Second)
+		stopHTTPServerChan <- struct{}{}
+	}()
+
+	select {
 	// wait for client on clientChan
-	client := <-clientChan
-	// When the callbackHandler returns a client, it's time to shutdown the server gracefully
-	quitSignalChan <- struct{}{}
+	case client := <-clientChan:
+		// After the callbackHandler returns a client, it's time to shutdown the server gracefully
+		stopHTTPServerChan <- struct{}{}
+		return client, nil
 
-	return client, nil
+		// if authentication process is cancelled first return an error
+	case <-cancelAuthentication:
+		return nil, fmt.Errorf("authentication timed out and was cancelled")
+	}
 }
 
-func startHTTPServer(ctx context.Context, conf *oauth2.Config, clientChan chan *AuthorizedClient, quitSignalChan chan struct{}) {
+func startHTTPServer(ctx context.Context, conf *oauth2.Config) (clientChan chan *AuthorizedClient, stopHTTPServerChan chan struct{}, cancelAuthentication chan struct{}) {
+	// init returns
+	clientChan = make(chan *AuthorizedClient)
+	stopHTTPServerChan = make(chan struct{})
+	cancelAuthentication = make(chan struct{})
+
 	http.HandleFunc("/oauth/callback", callbackHandler(ctx, conf, clientChan))
 	srv := &http.Server{Addr: ":" + strconv.Itoa(PORT)}
 
+	// handle server shutdown signal
 	go func() {
-		// wait for quitSignal on quitSignalChan
-		<-quitSignalChan
+		// wait for signal on stopHTTPServerChan
+		<-stopHTTPServerChan
 		log.Println("Shutting down server...")
 
-		d := time.Now().Add(5 * time.Second) // deadline 5s max
+		// give it 5 sec to shutdown gracefully, else quit program
+		d := time.Now().Add(5 * time.Second)
 		ctx, cancel := context.WithDeadline(context.Background(), d)
 		defer cancel()
 
 		if err := srv.Shutdown(ctx); err != nil {
-			log.Fatalf("could not shutdown: %v", err)
+			log.Fatalf("could not shutdown gracefully: %v", err)
 		}
+
+		// after server is shutdown, quit program
+		cancelAuthentication <- struct{}{}
 	}()
 
+	// handle callback request
 	go func() {
 		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
 			log.Fatalf("listen: %s\n", err)
 		}
 		fmt.Println("Server gracefully stopped")
 	}()
+
+	return clientChan, stopHTTPServerChan, cancelAuthentication
 }
 
 func callbackHandler(ctx context.Context, oauthConfig *oauth2.Config, clientChan chan *AuthorizedClient) func(w http.ResponseWriter, r *http.Request) {
