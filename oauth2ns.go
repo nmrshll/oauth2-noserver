@@ -83,18 +83,20 @@ func AuthenticateUser(oauthConfig *oauth2.Config, options ...AuthenticateUserOpt
 	}
 
 	clientChan, stopHTTPServerChan, cancelAuthentication := startHTTPServer(ctx, oauthConfig)
-	log.Println(color.CyanString("You will now be taken to your browser for authentication"))
+	log.Println(color.CyanString("You will now be taken to your browser for authentication or open the url below in a browser."))
+	log.Println(color.CyanString(urlString))
+	log.Println(color.CyanString("If you are opening the url manually on a different machine you will need to curl the result url on this machine manually."))
 	time.Sleep(1000 * time.Millisecond)
 	err := open.Run(urlString)
 	if err != nil {
-		return nil, stacktrace.Propagate(err, "failed opening browser window")
+		log.Println(color.CyanString("Failed to open browser, you MUST do the manual process."))
 	}
 	time.Sleep(600 * time.Millisecond)
 
-	// shutdown the server after 10 seconds
+	// shutdown the server after timeout
 	go func() {
-		spew.Dump("authentication will be cancelled in 40 seconds")
-		time.Sleep(40 * time.Second)
+		spew.Dump("authentication will be cancelled in 120 seconds")
+		time.Sleep(120 * time.Second)
 		stopHTTPServerChan <- struct{}{}
 	}()
 
