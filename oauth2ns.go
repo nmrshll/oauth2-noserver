@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/fatih/color"
 	rndm "github.com/nmrshll/rndm-go"
 	"github.com/palantir/stacktrace"
