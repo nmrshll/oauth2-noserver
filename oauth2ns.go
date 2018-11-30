@@ -23,8 +23,6 @@ type AuthorizedClient struct {
 }
 
 const (
-	// HOST is the local url for the callback
-	HOST                       = "127.0.0.1"
 	// PORT is the port that the temporary oauth server will listen on
 	PORT                       = 14565
 	// seconds to wait before giving up on auth and exiting
@@ -65,7 +63,7 @@ func AuthenticateUser(oauthConfig *oauth2.Config, options ...AuthenticateUserOpt
 
 	// Redirect user to consent page to ask for permission
 	// for the scopes specified above.
-	oauthConfig.RedirectURL = fmt.Sprintf("http://%s:%s/oauth/callback", HOST, strconv.Itoa(PORT))
+	oauthConfig.RedirectURL = fmt.Sprintf("http://127.0.0.1:%s/oauth/callback", strconv.Itoa(PORT))
 
 	// Some random string, random for each request
 	oauthStateString := rndm.String(8)
