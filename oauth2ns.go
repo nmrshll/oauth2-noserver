@@ -25,10 +25,10 @@ type AuthorizedClient struct {
 const (
 	// IP is the ip of this machine that will be called back in the browser. It may not be a hostname.
 	// If IP is not 127.0.0.1 DEVICE_NAME must be set. It can be any short string.
-	IP                         = "127.0.0.1"
-	DEVICE_NAME                = ""
+	IP          = "127.0.0.1"
+	DEVICE_NAME = ""
 	// PORT is the port that the temporary oauth server will listen on
-	PORT                       = 14565
+	PORT = 14565
 	// seconds to wait before giving up on auth and exiting
 	authTimeout                = 120
 	oauthStateStringContextKey = 987
@@ -86,8 +86,8 @@ func AuthenticateUser(oauthConfig *oauth2.Config, options ...AuthenticateUserOpt
 		parsedURL.RawQuery = params.Encode()
 		urlString = parsedURL.String()
 	}
-	
-	if (IP != "127.0.0.1") {
+
+	if IP != "127.0.0.1" {
 		urlString = fmt.Sprintf("%s&device_id=%s&device_name=%s", urlString, DEVICE_NAME, DEVICE_NAME)
 	}
 
@@ -98,7 +98,7 @@ func AuthenticateUser(oauthConfig *oauth2.Config, options ...AuthenticateUserOpt
 	time.Sleep(1000 * time.Millisecond)
 	err := open.Run(urlString)
 	if err != nil {
-		log.Println(color.CyanString("Failed to open browser, you MUST do the manual process."))
+		log.Println(color.RedString("Failed to open browser, you MUST do the manual process."))
 	}
 	time.Sleep(600 * time.Millisecond)
 
@@ -143,7 +143,7 @@ func startHTTPServer(ctx context.Context, conf *oauth2.Config) (clientChan chan 
 		defer cancel()
 
 		if err := srv.Shutdown(ctx); err != nil {
-			log.Fatalf("could not shutdown gracefully: %v", err)
+			log.Printf(color.RedString("Auth server could not shutdown gracefully: %v"), err)
 		}
 
 		// after server is shutdown, quit program
