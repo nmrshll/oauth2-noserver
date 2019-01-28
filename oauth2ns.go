@@ -14,7 +14,6 @@ import (
 	"github.com/fatih/color"
 	rndm "github.com/nmrshll/rndm-go"
 	"github.com/palantir/stacktrace"
-	"github.com/skratchdot/open-golang/open"
 	"golang.org/x/oauth2"
 )
 
@@ -84,17 +83,23 @@ func AuthenticateUser(oauthConfig *oauth2.Config, options ...AuthenticateUserOpt
 
 	clientChan, stopHTTPServerChan, cancelAuthentication := startHTTPServer(ctx, oauthConfig)
 	log.Println(color.CyanString("You will now be taken to your browser for authentication"))
+	// TODO DONE login without prompting browser window
 	time.Sleep(1000 * time.Millisecond)
-	err := open.Run(urlString)
-	if err != nil {
-		return nil, stacktrace.Propagate(err, "failed opening browser window")
-	}
+	//err := open.Run(urlString)
+	log.Printf("Open your browser to: %s", urlString)
+	/*
+		if err != nil {
+			return nil, stacktrace.Propagate(err, "failed opening browser window")
+		}
+	*/
 	time.Sleep(600 * time.Millisecond)
 
 	// shutdown the server after 10 seconds
 	go func() {
-		spew.Dump("authentication will be cancelled in 40 seconds")
-		time.Sleep(40 * time.Second)
+		serverWaitTimeout := 60 * 5 * time.Second
+		spew.Dump(fmt.Sprintf("authentication will be cancelled in %s seconds", serverWaitTimeout))
+		// add comment
+		time.Sleep(serverWaitTimeout)
 		stopHTTPServerChan <- struct{}{}
 	}()
 
@@ -118,6 +123,7 @@ func startHTTPServer(ctx context.Context, conf *oauth2.Config) (clientChan chan 
 	cancelAuthentication = make(chan struct{})
 
 	http.HandleFunc("/oauth/callback", callbackHandler(ctx, conf, clientChan))
+	// TOOD server listen on external address
 	srv := &http.Server{Addr: ":" + strconv.Itoa(PORT)}
 
 	// handle server shutdown signal
