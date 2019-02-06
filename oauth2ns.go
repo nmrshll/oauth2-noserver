@@ -14,8 +14,11 @@ import (
 	"github.com/fatih/color"
 	rndm "github.com/nmrshll/rndm-go"
 	"github.com/palantir/stacktrace"
+	"github.com/skratchdot/open-golang/open"
 	"golang.org/x/oauth2"
 )
+
+const serverWaitTimeout = 40 * time.Second
 
 type AuthorizedClient struct {
 	*http.Client
@@ -59,10 +62,6 @@ func AuthenticateUser(oauthConfig *oauth2.Config, options ...AuthenticateUserOpt
 	sslcli := &http.Client{Transport: tr}
 	ctx := context.WithValue(context.Background(), oauth2.HTTPClient, sslcli)
 
-	// Redirect user to consent page to ask for permission
-	// for the scopes specified above.
-	oauthConfig.RedirectURL = fmt.Sprintf("http://127.0.0.1:%s/oauth/callback", strconv.Itoa(PORT))
-
 	// Some random string, random for each request
 	oauthStateString := rndm.String(8)
 	ctx = context.WithValue(ctx, oauthStateStringContextKey, oauthStateString)
@@ -83,36 +82,28 @@ func AuthenticateUser(oauthConfig *oauth2.Config, options ...AuthenticateUserOpt
 
 	clientChan, stopHTTPServerChan, cancelAuthentication := startHTTPServer(ctx, oauthConfig)
 	log.Println(color.CyanString("You will now be taken to your browser for authentication"))
-	// TODO DONE login without prompting browser window
 	time.Sleep(1000 * time.Millisecond)
-	//err := open.Run(urlString)
+	err := open.Run(urlString)
 	log.Printf("Open your browser to: %s", urlString)
-	/*
-		if err != nil {
-			return nil, stacktrace.Propagate(err, "failed opening browser window")
-		}
-	*/
+	if err != nil {
+		stacktrace.Propagate(err, "failed opening browser window")
+	}
 	time.Sleep(600 * time.Millisecond)
 
-	// shutdown the server after 10 seconds
-	go func() {
-		serverWaitTimeout := 60 * 5 * time.Second
-		spew.Dump(fmt.Sprintf("authentication will be cancelled in %s seconds", serverWaitTimeout))
-		// add comment
-		time.Sleep(serverWaitTimeout)
-		stopHTTPServerChan <- struct{}{}
-	}()
-
+	spew.Dump(fmt.Sprintf("authentication will be cancelled in %s seconds", serverWaitTimeout))
+	serverTimeout := time.After(serverWaitTimeout)
 	select {
 	// wait for client on clientChan
 	case client := <-clientChan:
 		// After the callbackHandler returns a client, it's time to shutdown the server gracefully
 		stopHTTPServerChan <- struct{}{}
 		return client, nil
-
 		// if authentication process is cancelled first return an error
 	case <-cancelAuthentication:
 		return nil, fmt.Errorf("authentication timed out and was cancelled")
+	case <-serverTimeout:
+		stopHTTPServerChan <- struct{}{}
+		return nil, fmt.Errorf("server timeout was hit")
 	}
 }
 
