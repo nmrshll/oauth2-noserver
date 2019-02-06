@@ -18,8 +18,6 @@ import (
 	"golang.org/x/oauth2"
 )
 
-const serverWaitTimeout = 40 * time.Second
-
 type AuthorizedClient struct {
 	*http.Client
 	Token *oauth2.Token
@@ -29,6 +27,7 @@ const (
 	// PORT is the port that the temporary oauth server will listen on
 	PORT                       = 14565
 	oauthStateStringContextKey = 987
+	serverWaitTimeout = 40 * time.Second
 )
 
 type AuthenticateUserOption func(*AuthenticateUserFuncConfig) error
@@ -114,7 +113,6 @@ func startHTTPServer(ctx context.Context, conf *oauth2.Config) (clientChan chan 
 	cancelAuthentication = make(chan struct{})
 
 	http.HandleFunc("/oauth/callback", callbackHandler(ctx, conf, clientChan))
-	// TOOD server listen on external address
 	srv := &http.Server{Addr: ":" + strconv.Itoa(PORT)}
 
 	// handle server shutdown signal
