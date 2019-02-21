@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/fatih/color"
 	rndm "github.com/nmrshll/rndm-go"
 	"github.com/palantir/stacktrace"
@@ -24,8 +23,14 @@ type AuthorizedClient struct {
 }
 
 const (
+	// IP is the ip of this machine that will be called back in the browser. It may not be a hostname.
+	// If IP is not 127.0.0.1 DEVICE_NAME must be set. It can be any short string.
+	IP          = "127.0.0.1"
+	DEVICE_NAME = ""
 	// PORT is the port that the temporary oauth server will listen on
-	PORT                       = 14565
+	PORT = 14565
+	// seconds to wait before giving up on auth and exiting
+	authTimeout                = 120
 	oauthStateStringContextKey = 987
 )
 
@@ -62,7 +67,7 @@ func AuthenticateUser(oauthConfig *oauth2.Config, options ...AuthenticateUserOpt
 
 	// Redirect user to consent page to ask for permission
 	// for the scopes specified above.
-	oauthConfig.RedirectURL = fmt.Sprintf("http://127.0.0.1:%s/oauth/callback", strconv.Itoa(PORT))
+	oauthConfig.RedirectURL = fmt.Sprintf("http://%s:%s/oauth/callback", IP, strconv.Itoa(PORT))
 
 	// Some random string, random for each request
 	oauthStateString := rndm.String(8)
@@ -72,7 +77,7 @@ func AuthenticateUser(oauthConfig *oauth2.Config, options ...AuthenticateUserOpt
 	if optionsConfig.AuthCallHTTPParams != nil {
 		parsedURL, err := url.Parse(urlString)
 		if err != nil {
-			return nil, stacktrace.Propagate(err, "fa`iled parsing url string")
+			return nil, stacktrace.Propagate(err, "failed parsing url string")
 		}
 		params := parsedURL.Query()
 		for key, value := range optionsConfig.AuthCallHTTPParams {
@@ -82,19 +87,25 @@ func AuthenticateUser(oauthConfig *oauth2.Config, options ...AuthenticateUserOpt
 		urlString = parsedURL.String()
 	}
 
+	if IP != "127.0.0.1" {
+		urlString = fmt.Sprintf("%s&device_id=%s&device_name=%s", urlString, DEVICE_NAME, DEVICE_NAME)
+	}
+
 	clientChan, stopHTTPServerChan, cancelAuthentication := startHTTPServer(ctx, oauthConfig)
-	log.Println(color.CyanString("You will now be taken to your browser for authentication"))
+	log.Println(color.CyanString("You will now be taken to your browser for authentication or open the url below in a browser."))
+	log.Println(color.CyanString(urlString))
+	log.Println(color.CyanString("If you are opening the url manually on a different machine you will need to curl the result url on this machine manually."))
 	time.Sleep(1000 * time.Millisecond)
 	err := open.Run(urlString)
 	if err != nil {
-		return nil, stacktrace.Propagate(err, "failed opening browser window")
+		log.Println(color.RedString("Failed to open browser, you MUST do the manual process."))
 	}
 	time.Sleep(600 * time.Millisecond)
 
-	// shutdown the server after 10 seconds
+	// shutdown the server after timeout
 	go func() {
-		spew.Dump("authentication will be cancelled in 40 seconds")
-		time.Sleep(40 * time.Second)
+		log.Printf("Authentication will be cancelled in %s seconds", strconv.Itoa(authTimeout))
+		time.Sleep(authTimeout * time.Second)
 		stopHTTPServerChan <- struct{}{}
 	}()
 
@@ -132,7 +143,7 @@ func startHTTPServer(ctx context.Context, conf *oauth2.Config) (clientChan chan 
 		defer cancel()
 
 		if err := srv.Shutdown(ctx); err != nil {
-			log.Fatalf("could not shutdown gracefully: %v", err)
+			log.Printf(color.RedString("Auth server could not shutdown gracefully: %v"), err)
 		}
 
 		// after server is shutdown, quit program
