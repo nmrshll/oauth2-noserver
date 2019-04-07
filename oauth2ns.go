@@ -96,7 +96,7 @@ func AuthenticateUser(oauthConfig *oauth2.Config, options ...AuthenticateUserOpt
 	log.Println(color.CyanString(urlString))
 	log.Println(color.CyanString("If you are opening the url manually on a different machine you will need to curl the result url on this machine manually."))
 	time.Sleep(1000 * time.Millisecond)
-	err := open.Run(urlString)
+	err := open.Start(urlString)
 	if err != nil {
 		log.Println(color.RedString("Failed to open browser, you MUST do the manual process."))
 	}
