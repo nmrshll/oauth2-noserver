@@ -72,7 +72,8 @@ func AuthenticateUser(oauthConfig *oauth2.Config, options ...AuthenticateUserOpt
 	// Some random string, random for each request
 	oauthStateString := rndm.String(8)
 	ctx = context.WithValue(ctx, oauthStateStringContextKey, oauthStateString)
-	urlString := oauthConfig.AuthCodeURL(oauthStateString, oauth2.AccessTypeOffline)
+	// Getting consent from the user is required to get a refresh token
+	urlString := oauthConfig.AuthCodeURL(oauthStateString, oauth2.AccessTypeOffline, oauth2.ApprovalForce)
 
 	if optionsConfig.AuthCallHTTPParams != nil {
 		parsedURL, err := url.Parse(urlString)
@@ -174,7 +175,7 @@ func callbackHandler(ctx context.Context, oauthConfig *oauth2.Config, clientChan
 		code := r.FormValue("code")
 		token, err := oauthConfig.Exchange(ctx, code)
 		if err != nil {
-			fmt.Printf("oauthoauthConfig.Exchange() failed with '%s'\n", err)
+			fmt.Printf("oauthConfig.Exchange() failed with '%s'\n", err)
 			http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
 			return
 		}
