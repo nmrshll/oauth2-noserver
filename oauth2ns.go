@@ -93,7 +93,7 @@ func AuthenticateUser(oauthConfig *oauth2.Config, options ...AuthenticateUserOpt
 
 	clientChan, stopHTTPServerChan, cancelAuthentication := startHTTPServer(ctx, oauthConfig)
 	log.Println(color.CyanString("You will now be taken to your browser for authentication or open the url below in a browser."))
-	log.Println(color.CyanString(urlString))
+	log.Println(color.GreenString(urlString))
 	log.Println(color.CyanString("If you are opening the url manually on a different machine you will need to curl the result url on this machine manually."))
 	time.Sleep(1000 * time.Millisecond)
 	err := open.Run(urlString)
